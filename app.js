@@ -248,17 +248,10 @@ async function detectFaces(token = state.photoToken) {
   setStatus(els.faceStatus, 'Finding faces…'); setBusy('Finding faces…');
   try {
     await loadModels();
-    const src = state.photo;
-    const scale = Math.min(1, DETECT_SIDE / Math.max(src.width, src.height));
-    const dc = document.createElement('canvas');
-    dc.width = Math.round(src.width * scale); dc.height = Math.round(src.height * scale);
-    dc.getContext('2d').drawImage(src, 0, 0, dc.width, dc.height);
-    const results = await faceapi
-      .detectAllFaces(dc, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.4, maxResults: 40 }))
-      .withFaceLandmarks();
+    const faces = await findFacesTiled(state.photo);
     if (token !== state.photoToken) return;
     const prof = profileFor(state.collection, state.number);
-    state.overlays = results.map(r => overlayFromFace(r, 1 / scale, prof)).sort((a, b) => a.cx - b.cx);
+    state.overlays = faces.map(f => overlayFromFace(f, prof)).sort((a, b) => a.cx - b.cx);
     state.selected = -1;
     const n = state.overlays.length;
     setStatus(els.faceStatus, n ? `Found ${n} face${n === 1 ? '' : 's'}. Click a face below or on the photo to fine-tune it.` : 'No faces found. Turn on "Add ape" and click the photo to place one by hand.');
@@ -270,12 +263,46 @@ async function detectFaces(token = state.photoToken) {
   } finally { if (token === state.photoToken) setBusy(''); }
 }
 
-// Turn a detection into an overlay: centre on the head, size from the face box, tilt from the eyes.
-function overlayFromFace(res, k, prof) {
-  const box = res.detection.box;
-  const lm = res.landmarks;
+// The detector shrinks its input to 512px, so small faces in group shots vanish. Run it on the
+// whole photo and on overlapping 2x2 and 3x3 tiles, then merge duplicates, keeping the most confident.
+async function findFacesTiled(src) {
+  const W = src.width, H = src.height, found = [];
   const mid = pts => pts.reduce((a, p) => ({ x: a.x + p.x / pts.length, y: a.y + p.y / pts.length }), { x: 0, y: 0 });
-  const le = mid(lm.getLeftEye()), re = mid(lm.getRightEye()), mouth = mid(lm.getMouth());
+  const grids = Math.max(W, H) > 700 ? [1, 2, 3] : [1, 2];
+  for (const n of grids) {
+    const tw = Math.min(W, Math.ceil((W / n) * 1.35)), th = Math.min(H, Math.ceil((H / n) * 1.35));
+    for (let gy = 0; gy < n; gy++) for (let gx = 0; gx < n; gx++) {
+      const x = n === 1 ? 0 : Math.round(((W - tw) * gx) / (n - 1)), y = n === 1 ? 0 : Math.round(((H - th) * gy) / (n - 1));
+      const k = Math.min(1, DETECT_SIDE / Math.max(tw, th));
+      const c = document.createElement('canvas'); c.width = Math.round(tw * k); c.height = Math.round(th * k);
+      c.getContext('2d').drawImage(src, x, y, tw, th, 0, 0, c.width, c.height);
+      const rs = await faceapi.detectAllFaces(c, new faceapi.SsdMobilenetv1Options({ minConfidence: n === 1 ? 0.4 : 0.38, maxResults: 60 })).withFaceLandmarks();
+      for (const r of rs) {
+        const map = p => ({ x: x + p.x / k, y: y + p.y / k }), b = r.detection.box;
+        found.push({
+          score: r.detection.score, box: { x: x + b.x / k, y: y + b.y / k, w: b.width / k, h: b.height / k },
+          leftEye: map(mid(r.landmarks.getLeftEye())), rightEye: map(mid(r.landmarks.getRightEye())), mouth: map(mid(r.landmarks.getMouth())),
+        });
+      }
+      await sleep(0);
+    }
+  }
+  found.sort((a, b) => b.score - a.score);
+  const keep = [];
+  const overlaps = (a, b) => {
+    const x0 = Math.max(a.x, b.x), y0 = Math.max(a.y, b.y), x1 = Math.min(a.x + a.w, b.x + b.w), y1 = Math.min(a.y + a.h, b.y + b.h);
+    const inter = Math.max(0, x1 - x0) * Math.max(0, y1 - y0), iou = inter / (a.w * a.h + b.w * b.h - inter);
+    const close = Math.abs(a.x + a.w / 2 - (b.x + b.w / 2)) < a.w * 0.5 && Math.abs(a.y + a.h / 2 - (b.y + b.h / 2)) < a.h * 0.5;
+    return iou > 0.3 || close;
+  };
+  for (const f of found) if (!keep.some(k => overlaps(k.box, f.box))) keep.push(f);
+  return keep;
+}
+
+// Turn a detection into an overlay: centre on the head, size from the face box, tilt from the eyes.
+function overlayFromFace(f, prof) {
+  const k = 1, box = { height: f.box.h };
+  const le = f.leftEye, re = f.rightEye, mouth = f.mouth;
   const rot = Math.atan2(re.y - le.y, re.x - le.x);
   const eyes = { x: (le.x + re.x) / 2, y: (le.y + re.y) / 2 };
   // A human head runs from roughly 1.3 eye-to-mouth distances above the eyes to 0.9 below the mouth.
