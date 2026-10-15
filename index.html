@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ape Face Booth</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=Anton&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="styles.css">
+<script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/dist/face-api.js" defer></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+<header class="masthead">
+  <h1 class="logo">Ape Face <span>Booth</span></h1>
+  <p class="tagline">Drop in a photo, pick an ape by number, and every face in the shot gets aped.</p>
+</header>
+
+<main class="booth">
+  <section class="stage-col" aria-label="Photo">
+    <div id="stage" class="stage" tabindex="0" aria-label="Photo canvas. Click an ape to select it, drag to move it.">
+      <canvas id="canvas"></canvas>
+      <div id="dropzone" class="dropzone">
+        <p class="dz-title">Drop a photo here</p>
+        <p class="dz-sub">or paste one, or use the buttons on the right</p>
+      </div>
+      <div id="busy" class="busy" hidden><span class="spinner" aria-hidden="true"></span><span id="busy-text">Working…</span></div>
+    </div>
+    <p id="stage-hint" class="stage-hint">Click an ape to select it. Drag to move, drag the yellow corner to resize, drag the round handle to tilt. With "Add ape" on, click anywhere to place one.</p>
+  </section>
+
+  <aside class="panel" aria-label="Controls">
+    <section class="card" aria-labelledby="h-photo">
+      <h2 id="h-photo"><span class="step">1</span>Photo</h2>
+      <div class="row">
+        <label class="btn primary" for="file">Upload photo</label>
+        <input id="file" type="file" accept="image/*" hidden>
+        <button id="sample" class="btn" type="button">Sample photo</button>
+      </div>
+      <form id="url-form" class="row url-row">
+        <label class="sr-only" for="url">Image URL</label>
+        <input id="url" type="url" placeholder="…or paste an image link" autocomplete="off">
+        <button class="btn" type="submit">Load</button>
+      </form>
+      <p id="photo-status" class="status" role="status"></p>
+    </section>
+
+    <section class="card" aria-labelledby="h-ape">
+      <h2 id="h-ape"><span class="step">2</span>Ape</h2>
+      <div class="seg" role="radiogroup" aria-label="Collection">
+        <button id="col-bayc" class="seg-btn" role="radio" aria-checked="true" type="button">Bored Ape</button>
+        <button id="col-mayc" class="seg-btn" role="radio" aria-checked="false" type="button">Mutant Ape</button>
+      </div>
+      <div class="ape-pick">
+        <div class="ape-thumb" id="ape-thumb"><canvas id="ape-preview" width="160" height="160" aria-label="Ape preview"></canvas></div>
+        <div class="ape-fields">
+          <label class="lbl" for="ape-num">Number</label>
+          <div class="num-row">
+            <span class="hash">#</span>
+            <input id="ape-num" type="number" inputmode="numeric" min="0" max="9999" value="2442">
+          </div>
+          <button id="random" class="btn small" type="button">Random</button>
+          <p id="ape-status" class="status" role="status"></p>
+        </div>
+      </div>
+      <div class="row">
+        <button id="apply-all" class="btn" type="button">Use on every face</button>
+        <button id="add-mode" class="btn" type="button" aria-pressed="false">Add ape</button>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="h-faces">
+      <h2 id="h-faces"><span class="step">3</span>Faces</h2>
+      <p id="face-status" class="status" role="status">Load a photo to find faces.</p>
+      <div id="face-list" class="chips"></div>
+      <div id="edit" class="edit" hidden>
+        <label class="lbl" for="size">Size</label>
+        <input id="size" type="range" min="5" max="400" step="1">
+        <label class="lbl" for="tilt">Tilt</label>
+        <input id="tilt" type="range" min="-180" max="180" step="1">
+        <div class="row">
+          <button id="flip" class="btn small" type="button" aria-pressed="false">Mirror</button>
+          <button id="sticker" class="btn small" type="button" aria-pressed="false">Square sticker</button>
+          <button id="remove" class="btn small danger" type="button">Remove</button>
+        </div>
+      </div>
+      <button id="redetect" class="btn small ghost" type="button" disabled>Find faces again</button>
+    </section>
+
+    <section class="card" aria-labelledby="h-extras">
+      <h2 id="h-extras"><span class="step">4</span>Get weird</h2>
+      <div class="row">
+        <button id="laser" class="btn" type="button" aria-pressed="false">Laser eyes</button>
+        <button id="random-all" class="btn" type="button">Random ape for everyone</button>
+      </div>
+      <label class="lbl" for="filter">Filter</label>
+      <select id="filter">
+        <option value="none">No filter</option>
+        <option value="sewer">Sewer (Dookey Dash)</option>
+        <option value="neon">Neon clubhouse</option>
+        <option value="gold">Solid gold</option>
+        <option value="toad">Toad mode</option>
+      </select>
+      <label class="lbl" for="meme-top">Meme text, top</label>
+      <input id="meme-top" type="text" maxlength="60" placeholder="gm" autocomplete="off">
+      <label class="lbl" for="meme-bottom">Meme text, bottom</label>
+      <input id="meme-bottom" type="text" maxlength="60" placeholder="we're all gonna make it" autocomplete="off">
+    </section>
+
+    <section class="card" aria-labelledby="h-share">
+      <h2 id="h-share"><span class="step">5</span>Share</h2>
+      <label class="lbl" for="caption">Post text</label>
+      <textarea id="caption" rows="3" maxlength="280"></textarea>
+      <p class="count"><span id="count">0</span>/280</p>
+      <div class="row">
+        <button id="download" class="btn primary" type="button" disabled>Download PNG</button>
+        <button id="copy" class="btn" type="button" disabled>Copy image</button>
+      </div>
+      <div class="row">
+        <button id="post" class="btn x" type="button" disabled>Post on X</button>
+        <button id="share" class="btn" type="button" hidden disabled>Share…</button>
+        <button id="gif" class="btn" type="button" disabled>Download GIF</button>
+      </div>
+      <p class="fine">"Post on X" copies the image and opens a new post with your text. Paste the image into the post with ⌘V (Ctrl+V on Windows) before posting.</p>
+    </section>
+  </aside>
+</main>
+
+<footer class="foot">
+  <p>Your photo never leaves this browser: faces are found on your device. Ape art © Yuga Labs, loaded from each ape's official metadata on IPFS.</p>
+  <p>Fan-made, not affiliated with Yuga Labs. Lore, rules and the weekly contest live on the <a href="https://bored-ape-yacht-club.fandom.com/wiki/Ape_Face_Booth">Bored Ape Yacht Club Wiki</a> · <a href="https://github.com/jeffreymt1/ape-face-booth">source</a></p>
+  <p id="credit" class="credit"></p>
+</footer>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
